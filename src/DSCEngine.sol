@@ -3,8 +3,8 @@
 // Layout of contract:
 // version
 // imports
-// errors
 // interfaces, libraries, and contracts
+// errors
 // type declarations
 // state variables
 // events
@@ -22,6 +22,8 @@
 // view & pure
 
 pragma solidity ^0.8.18;
+
+import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 
 /**
  * @title DSCEngine
@@ -49,12 +51,62 @@ pragma solidity ^0.8.18;
  */
 
 contract DSCEngine {
+    // Errors
+    error DSCEngine__NeedsMoreThanZero();
+    error DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeSameLength();
+
+    // State variables
+    mapping(address token => address priceFeed) private s_priceFeedds;
+
+    DecentralizedStableCoin private immutable i_dsc;
+
+    // Modifiers
+    modifier moreThanZero(uint256 _amount) {
+        if (_amount <= 0) {
+            revert DSCEngine__NeedsMoreThanZero();
+        }
+        _;
+    }
+
+    modifier isAllowedToken(address _tokenAddress) {
+        require(
+            _tokenAddress == address(0) ||
+                _tokenAddress == address(1) ||
+                _tokenAddress == address(2),
+            "Token address is not allowed"
+        );
+        _;
+    }
+
+    // Functions
+    constructor(
+        address[] memory tokenAddresses,
+        address[] memory priceFeedAddresses,
+        address dscAddress
+    ) {
+        // USD Price Feeds
+        if (tokenAddresses.length != priceFeedAddresses.length) {
+            revert DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeSameLength();
+        }
+        // for example, ETH/USD, BTC/USD price feeds
+        for (uint256 i = 0; i < tokenAddresses.length; i++) {
+            s_priceFeedds[tokenAddresses[i]] = priceFeedAddresses[i];
+        }
+        i_dsc = DecentralizedStableCoin(dscAddress);
+    }
+
+    // - external functions
     function depositCollateralAndMintDsc() external {}
 
+    /**
+     * @notice Deposit collateral to the DSC system.
+     * @param tokenCollateralAddress The address of the token to deposit as collateral.
+     * @param amountCollateral The amount of collateral to deposit.
+     */
     function depositCollateral(
         address tokenCollateralAddress,
         uint256 amountCollateral
-    ) external {}
+    ) external moreThanZero(amountCollateral) {}
 
     function redeemCollateralForDsc() external {}
 
