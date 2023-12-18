@@ -25,6 +25,8 @@ pragma solidity ^0.8.18;
 
 import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 
+// import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
 /**
  * @title DSCEngine
  * @author Sean Coates - fooyay
@@ -54,13 +56,18 @@ contract DSCEngine {
     // Errors
     error DSCEngine__NeedsMoreThanZero();
     error DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeSameLength();
+    error DSCEngine__TokenNotAllowed();
 
     // State variables
     mapping(address token => address priceFeed) private s_priceFeedds;
+    mapping(address user => mapping(address token => uint256)) private s_collateralDeposited;
 
     DecentralizedStableCoin private immutable i_dsc;
 
+    // Events
+    event CollateralDeposited(address indexed user, address indexed token, uint256 indexed amount);
     // Modifiers
+
     modifier moreThanZero(uint256 _amount) {
         if (_amount <= 0) {
             revert DSCEngine__NeedsMoreThanZero();
@@ -69,21 +76,14 @@ contract DSCEngine {
     }
 
     modifier isAllowedToken(address _tokenAddress) {
-        require(
-            _tokenAddress == address(0) ||
-                _tokenAddress == address(1) ||
-                _tokenAddress == address(2),
-            "Token address is not allowed"
-        );
+        if (s_priceFeedds[_tokenAddress] == address(0)) {
+            revert DSCEngine__TokenNotAllowed();
+        }
         _;
     }
 
     // Functions
-    constructor(
-        address[] memory tokenAddresses,
-        address[] memory priceFeedAddresses,
-        address dscAddress
-    ) {
+    constructor(address[] memory tokenAddresses, address[] memory priceFeedAddresses, address dscAddress) {
         // USD Price Feeds
         if (tokenAddresses.length != priceFeedAddresses.length) {
             revert DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeSameLength();
@@ -103,10 +103,15 @@ contract DSCEngine {
      * @param tokenCollateralAddress The address of the token to deposit as collateral.
      * @param amountCollateral The amount of collateral to deposit.
      */
-    function depositCollateral(
-        address tokenCollateralAddress,
-        uint256 amountCollateral
-    ) external moreThanZero(amountCollateral) {}
+    function depositCollateral(address tokenCollateralAddress, uint256 amountCollateral)
+        external
+        moreThanZero(amountCollateral)
+        isAllowedToken(tokenCollateralAddress)
+        nonReentrant
+    {
+        s_collateralDeposited[msg.sender][tokenCollateralAddress] += amountCollateral;
+        emit CollateralDeposited(msg.sender, tokenCollateralAddress, amountCollateral);
+    }
 
     function redeemCollateralForDsc() external {}
 
