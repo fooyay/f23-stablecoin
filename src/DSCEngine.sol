@@ -53,7 +53,6 @@ import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
  * collateral.
  * @notice This contract is loosely based on the MakerDAO DSS (DAI) system.
  */
-
 contract DSCEngine is ReentrancyGuard {
     // Errors
     error DSCEngine__NeedsMoreThanZero();
@@ -79,10 +78,11 @@ contract DSCEngine is ReentrancyGuard {
 
     // Events
     event CollateralDeposited(address indexed user, address indexed token, uint256 indexed amount);
+
     // Modifiers
 
     modifier moreThanZero(uint256 _amount) {
-        if (_amount <= 0) {
+        if (_amount == 0) {
             revert DSCEngine__NeedsMoreThanZero();
         }
         _;
@@ -121,6 +121,7 @@ contract DSCEngine is ReentrancyGuard {
         external
         moreThanZero(amountCollateral)
         isAllowedToken(tokenCollateralAddress)
+        nonReentrant
     {
         s_collateralDeposited[msg.sender][tokenCollateralAddress] += amountCollateral;
         emit CollateralDeposited(msg.sender, tokenCollateralAddress, amountCollateral);
@@ -155,7 +156,7 @@ contract DSCEngine is ReentrancyGuard {
 
     function liquidate() external nonReentrant {}
 
-    function getHealthFactor() external {}
+    function getHealthFactor() external view {}
 
     // private & internal view functions
     function _getAccountInformation(address user)
@@ -197,12 +198,12 @@ contract DSCEngine is ReentrancyGuard {
         for (uint256 i = 0; i < s_collateralTokens.length; i++) {
             address token = s_collateralTokens[i];
             uint256 amount = s_collateralDeposited[user][token];
-            totalCollateralValue += getValue(token, amount);
+            totalCollateralValue += getUsdValue(token, amount);
         }
         return totalCollateralValue;
     }
 
-    function getValue(address token, uint256 amount) public view returns (uint256) {
+    function getUsdValue(address token, uint256 amount) public view returns (uint256) {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
         (, int256 price,,,) = priceFeed.latestRoundData();
         // if 1 ETH == $2000, then the value from chainlink will be 2000 * 1e8
