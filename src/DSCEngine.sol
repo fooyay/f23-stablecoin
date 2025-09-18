@@ -78,6 +78,7 @@ contract DSCEngine is ReentrancyGuard {
 
     // Events
     event CollateralDeposited(address indexed user, address indexed token, uint256 indexed amount);
+    event CollateralRedeemed(address indexed user, address indexed token, uint256 indexed amount);
 
     // Modifiers
 
@@ -145,9 +146,38 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
-    function redeemCollateralForDsc() external {}
+    /**
+     * @notice This function burns DSC and redeems collateral in a single transaction.
+     * @param tokenCollateralAddress The address of the collateral token to redeem.
+     * @param amountCollateral The amount of collateral to redeem.
+     * @param amountDscToBurn The amount of DSC to burn.
+     */
+    function redeemCollateralForDsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountDscToBurn)
+        external
+        moreThanZero(amountCollateral)
+    {
+        burnDsc(amountDscToBurn);
+        redeemCollateral(tokenCollateralAddress, amountCollateral);
+        // redeemCollateral already checks health factor
+    }
 
-    function redeemCollateral() external nonReentrant {}
+    // In order to redeem collateral:
+    // 1. The health factor needs to be above the minimum threshold after
+    // the collateral is redeemed.
+    function redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral)
+        external
+        moreThanZero(amountCollateral)
+        nonReentrant
+    {
+        // automatically reverts if this would go negative because of uint and safe math built-ins
+        s_collateralDeposited[msg.sender][tokenCollateralAddress] -= amountCollateral;
+        emit CollateralRedeemed(msg.sender, tokenCollateralAddress, amountCollateral);
+        bool success = IERC20(tokenCollateralAddress).transfer(msg.sender, amountCollateral);
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
 
     // 1. Check if the collateral is enough to cover the DSC, and for that
     // we'll need to use a price feed.
@@ -166,9 +196,20 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
-    function burnDsc() external {}
+    function burnDsc(uint256 amount) external moreThanZero(amount) nonReentrant {
+        s_DSCMinted[msg.sender] -= amount;
+        bool success = i_dsc.transferFrom(msg.sender, address(this), amount);
+        // note: transferFrom reverts on failure, so this is just a double-check
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
+        i_dsc.burn(amount);
+        _revertIfHealthFactorIsBroken(msg.sender); // not needed?
+            // burning DSC improves your health factor, so this will never revert
+    }
 
-    function liquidate() external nonReentrant {}
+    // If someone is almost undercollateralized, we will pay you to liquidate them.
+    function liquidate(address collateral, address user, uint256 debtToCover) external {}
 
     function getHealthFactor() external view {}
 
