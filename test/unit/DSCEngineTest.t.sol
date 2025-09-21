@@ -14,7 +14,9 @@ contract DSCEngineTest is Test {
     DSCEngine dscEngine;
     HelperConfig config;
     address ethUsdPriceFeed;
+    address btcUsdPriceFeed;
     address weth;
+    address wbtc;
 
     address public USER = makeAddr("user");
     uint256 public constant AMOUNT_COLLATERAL = 10 ether;
@@ -23,8 +25,21 @@ contract DSCEngineTest is Test {
     function setUp() public {
         deployer = new DeployDSC();
         (dsc, dscEngine, config) = deployer.run();
-        (ethUsdPriceFeed,, weth,,) = config.activeNetworkConfig();
+        (ethUsdPriceFeed, btcUsdPriceFeed, weth, wbtc,) = config.activeNetworkConfig();
         ERC20Mock(weth).mint(USER, STARTING_ERC20_BALANCE);
+    }
+
+    // Constructor Tests
+    address[] public tokenAddresses;
+    address[] public priceFeedAddresses;
+
+    function testRevertsIfTokenLengthDoesntMatchPriceFeedLength() public {
+        tokenAddresses.push(weth);
+        priceFeedAddresses.push(ethUsdPriceFeed);
+        priceFeedAddresses.push(btcUsdPriceFeed);
+
+        vm.expectRevert(DSCEngine.DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeSameLength.selector);
+        new DSCEngine(tokenAddresses, priceFeedAddresses, address(dsc));
     }
 
     // Price Tests
@@ -32,6 +47,7 @@ contract DSCEngineTest is Test {
     function testGetUsdValue() public {
         uint256 ethAmount = 15e18;
         uint256 expectedUsd = 30000e18; // 15 ETH * $2000/ETH = $30,000
+        // note, that won't work on Sepolia, which has the actual price
         uint256 actualUsd = dscEngine.getUsdValue(weth, ethAmount);
         assertEq(expectedUsd, actualUsd);
     }
