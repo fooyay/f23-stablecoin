@@ -30,6 +30,18 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 
 /**
+ * @title IDSCEngineEvents
+ * @dev Interface defining all events emitted by the DSCEngine contract
+ * This interface can be imported by test contracts to avoid event duplication
+ */
+interface IDSCEngineEvents {
+    event CollateralDeposited(address indexed user, address indexed token, uint256 indexed amount);
+    event CollateralRedeemed(
+        address indexed redeemedFrom, address indexed redeemedTo, address indexed token, uint256 amount
+    );
+}
+
+/**
  * @title DSCEngine
  * @author Sean Coates - fooyay
  *
@@ -53,7 +65,7 @@ import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
  * collateral.
  * @notice This contract is loosely based on the MakerDAO DSS (DAI) system.
  */
-contract DSCEngine is ReentrancyGuard {
+contract DSCEngine is ReentrancyGuard, IDSCEngineEvents {
     // Errors
     error DSCEngine__NeedsMoreThanZero();
     error DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeSameLength();
@@ -78,12 +90,6 @@ contract DSCEngine is ReentrancyGuard {
     address[] private s_collateralTokens;
 
     DecentralizedStableCoin private immutable i_dsc;
-
-    // Events
-    event CollateralDeposited(address indexed user, address indexed token, uint256 indexed amount);
-    event CollateralRedeemed(
-        address indexed redeemedFrom, address indexed redeemedTo, address indexed token, uint256 amount
-    );
 
     // Modifiers
 
@@ -331,5 +337,13 @@ contract DSCEngine is ReentrancyGuard {
         // assume all of our chainlink price feeds have 8 decimals - this is
         // the case for ETH/USD and BTC/USD but could be a problem later.
         return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION;
+    }
+
+    function getAccountInformation(address user)
+        external
+        view
+        returns (uint256 totalDscMinted, uint256 collateralValueInUsd)
+    {
+        (totalDscMinted, collateralValueInUsd) = _getAccountInformation(user);
     }
 }
