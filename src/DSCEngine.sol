@@ -234,7 +234,45 @@ contract DSCEngine is ReentrancyGuard, IDSCEngineEvents {
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
-    function getHealthFactor() external view {}
+    /**
+     * @notice Convenience: fetch the caller's current health factor.
+     * @dev If caller has no debt (minted == 0), returns type(uint256).max to indicate "infinite" safety.
+     */
+    function getHealthFactor() external view returns (uint256) {
+        return _externalHealthFactor(msg.sender);
+    }
+
+    /**
+     * @notice Fetch any user's health factor.
+     * @param user The account to query.
+     * @dev If user has no debt (minted == 0), returns type(uint256).max.
+     */
+    function getHealthFactor(address user) external view returns (uint256) {
+        return _externalHealthFactor(user);
+    }
+
+    function _externalHealthFactor(address user) internal view returns (uint256) {
+        uint256 minted = s_DSCMinted[user];
+        if (minted == 0) {
+            return type(uint256).max;
+        }
+        return _healthFactor(user);
+    }
+
+    // public functions
+    function depositCollateral(address tokenCollateralAddress, uint256 amountCollateral)
+        public
+        moreThanZero(amountCollateral)
+        isAllowedToken(tokenCollateralAddress)
+        nonReentrant
+    {
+        s_collateralDeposited[msg.sender][tokenCollateralAddress] += amountCollateral;
+        emit CollateralDeposited(msg.sender, tokenCollateralAddress, amountCollateral);
+        bool success = IERC20(tokenCollateralAddress).transferFrom(msg.sender, address(this), amountCollateral);
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
+    }
 
     // private & internal view functions
 
@@ -346,19 +384,5 @@ contract DSCEngine is ReentrancyGuard, IDSCEngineEvents {
      */
     function getUserCollateralBalance(address user, address token) external view returns (uint256) {
         return s_collateralDeposited[user][token];
-    }
-
-    function depositCollateral(address tokenCollateralAddress, uint256 amountCollateral)
-        public
-        moreThanZero(amountCollateral)
-        isAllowedToken(tokenCollateralAddress)
-        nonReentrant
-    {
-        s_collateralDeposited[msg.sender][tokenCollateralAddress] += amountCollateral;
-        emit CollateralDeposited(msg.sender, tokenCollateralAddress, amountCollateral);
-        bool success = IERC20(tokenCollateralAddress).transferFrom(msg.sender, address(this), amountCollateral);
-        if (!success) {
-            revert DSCEngine__TransferFailed();
-        }
     }
 }
