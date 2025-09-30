@@ -78,7 +78,12 @@ contract DSCEngine is ReentrancyGuard, IDSCEngineEvents {
 
     // State variables
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
+    // Generic precision for internal math when scaling values
     uint256 private constant PRECISION = 1e18;
+    // Public constant explicitly representing the USD (1e18) scaling used for
+    // all USD-denominated values returned by view functions. Tests and external
+    // integrators can reference this for clarity instead of duplicating 1e18 literals.
+    uint256 public constant USD_PRECISION = 1e18;
     uint256 private constant LIQUIDATION_THRESHOLD = 50;
     uint256 private constant LIQUIDATION_PRECISION = 100;
     uint256 private constant MIN_HEALTH_FACTOR = 1e18;
@@ -143,19 +148,6 @@ contract DSCEngine is ReentrancyGuard, IDSCEngineEvents {
      * @param tokenCollateralAddress The address of the token to deposit as collateral.
      * @param amountCollateral The amount of collateral to deposit.
      */
-    function depositCollateral(address tokenCollateralAddress, uint256 amountCollateral)
-        public
-        moreThanZero(amountCollateral)
-        isAllowedToken(tokenCollateralAddress)
-        nonReentrant
-    {
-        s_collateralDeposited[msg.sender][tokenCollateralAddress] += amountCollateral;
-        emit CollateralDeposited(msg.sender, tokenCollateralAddress, amountCollateral);
-        bool success = IERC20(tokenCollateralAddress).transferFrom(msg.sender, address(this), amountCollateral);
-        if (!success) {
-            revert DSCEngine__TransferFailed();
-        }
-    }
 
     /**
      * @notice This function burns DSC and redeems collateral in a single transaction.
@@ -298,7 +290,7 @@ contract DSCEngine is ReentrancyGuard, IDSCEngineEvents {
         (uint256 totalDscMinted, uint256 totalCollateralValue) = _getAccountInformation(user);
         uint256 collateralAdjustedForThreshold = (totalCollateralValue * LIQUIDATION_THRESHOLD) / LIQUIDATION_PRECISION;
         // BUG probably should be THRESHOLD_PRECISION, should catch in tests
-        return (collateralAdjustedForThreshold * PRECISION) / totalDscMinted;
+        return (collateralAdjustedForThreshold * USD_PRECISION) / totalDscMinted;
     }
 
     function _revertIfHealthFactorIsBroken(address user) internal view {
@@ -316,7 +308,7 @@ contract DSCEngine is ReentrancyGuard, IDSCEngineEvents {
         // if 1 ETH == $2000, then the value from chainlink will be 2000 * 1e8
         // assume all of our chainlink price feeds have 8 decimals - this is
         // the case for ETH/USD and BTC/USD but could be a problem later.
-        return (usdAmountInWei * PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION);
+        return (usdAmountInWei * USD_PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION);
     }
 
     function getAccountCollateralValue(address user) public view returns (uint256 totalCollateralValue) {
@@ -336,7 +328,7 @@ contract DSCEngine is ReentrancyGuard, IDSCEngineEvents {
         // if 1 ETH == $2000, then the value from chainlink will be 2000 * 1e8
         // assume all of our chainlink price feeds have 8 decimals - this is
         // the case for ETH/USD and BTC/USD but could be a problem later.
-        return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION;
+        return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / USD_PRECISION;
     }
 
     function getAccountInformation(address user)
@@ -345,5 +337,28 @@ contract DSCEngine is ReentrancyGuard, IDSCEngineEvents {
         returns (uint256 totalDscMinted, uint256 collateralValueInUsd)
     {
         (totalDscMinted, collateralValueInUsd) = _getAccountInformation(user);
+    }
+
+    /**
+     * @notice Returns how much of a specific collateral token a user has deposited.
+     * @param user The address of the user.
+     * @param token The collateral token address.
+     */
+    function getUserCollateralBalance(address user, address token) external view returns (uint256) {
+        return s_collateralDeposited[user][token];
+    }
+
+    function depositCollateral(address tokenCollateralAddress, uint256 amountCollateral)
+        public
+        moreThanZero(amountCollateral)
+        isAllowedToken(tokenCollateralAddress)
+        nonReentrant
+    {
+        s_collateralDeposited[msg.sender][tokenCollateralAddress] += amountCollateral;
+        emit CollateralDeposited(msg.sender, tokenCollateralAddress, amountCollateral);
+        bool success = IERC20(tokenCollateralAddress).transferFrom(msg.sender, address(this), amountCollateral);
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
     }
 }
