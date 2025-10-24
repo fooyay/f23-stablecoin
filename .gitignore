@@ -1,6 +1,10 @@
 # Compiler files
 cache/
 out/
+*.cache
+
+# Dependencies (managed by foundry.toml)
+lib/
 
 # Ignores development broadcast logs
 !/broadcast
@@ -10,5 +14,25 @@ out/
 # Docs
 docs/
 
-# Dotenv file
+# Coverage reports
+lcov.info
+coverage/
+
+# Dotenv files
 .env
+.env.*
+!.env.example
+
+# Node.js (if using npm/yarn for tooling)
+node_modules/
+
+# OS files
+.DS_Store
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml

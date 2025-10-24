@@ -333,6 +333,11 @@ contract DSCEngine is ReentrancyGuard, IDSCEngineEvents {
     }
 
     function _revertIfHealthFactorIsBroken(address user) internal view {
+        // If user has no debt, their health factor is infinite (always healthy)
+        uint256 minted = s_DSCMinted[user];
+        if (minted == 0) {
+            return;
+        }
         uint256 userHealthFactor = _healthFactor(user);
         if (userHealthFactor < MIN_HEALTH_FACTOR) {
             revert DSCEngine__HealthFactorIsBroken(userHealthFactor);

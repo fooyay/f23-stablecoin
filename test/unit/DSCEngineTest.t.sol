@@ -239,6 +239,148 @@ contract DSCEngineTest is BaseDSCTest {
     }
 
     // ------------------------
+    // Mint DSC Tests
+    // ------------------------
+    function testMintDsc_Success() public {
+        _deposit(USER, weth, AMOUNT_COLLATERAL);
+        uint256 amountToMint = 5_000 * dscEngine.USD_PRECISION();
+        vm.startPrank(USER);
+        dscEngine.mintDsc(amountToMint);
+        vm.stopPrank();
+        (uint256 minted,) = dscEngine.getAccountInformation(USER);
+        assertEq(minted, amountToMint);
+    }
+
+    function testMintDsc_RevertsIfHealthFactorBroken() public {
+        _deposit(USER, weth, AMOUNT_COLLATERAL); // 10 ETH = $20k
+        uint256 tooMuch = 15_000 * dscEngine.USD_PRECISION(); // Try to mint $15k (threshold allows only $10k)
+        vm.startPrank(USER);
+        // Expect revert with specific health factor value encoded in the error
+        // HF = (collateral * threshold / precision) / debt = (20k * 50%) / 15k = 0.666... = 666666666666666666 wei
+        vm.expectRevert(abi.encodeWithSelector(DSCEngine.DSCEngine__HealthFactorIsBroken.selector, 666666666666666666));
+        dscEngine.mintDsc(tooMuch);
+        vm.stopPrank();
+    }
+
+    // ------------------------
+    // Burn DSC Tests
+    // ------------------------
+    function testBurnDsc_Success() public {
+        _deposit(USER, weth, AMOUNT_COLLATERAL);
+        uint256 mintAmount = 5_000 * dscEngine.USD_PRECISION();
+        vm.startPrank(USER);
+        dscEngine.mintDsc(mintAmount);
+        uint256 burnAmount = 2_000 * dscEngine.USD_PRECISION();
+        dsc.approve(address(dscEngine), burnAmount);
+        dscEngine.burnDsc(burnAmount);
+        vm.stopPrank();
+        (uint256 remaining,) = dscEngine.getAccountInformation(USER);
+        assertEq(remaining, mintAmount - burnAmount);
+    }
+
+    function testBurnDsc_RevertsIfZero() public {
+        vm.startPrank(USER);
+        vm.expectRevert(DSCEngine.DSCEngine__NeedsMoreThanZero.selector);
+        dscEngine.burnDsc(0);
+        vm.stopPrank();
+    }
+
+    // ------------------------
+    // Deposit Collateral And Mint DSC Tests
+    // ------------------------
+    function testDepositCollateralAndMintDsc_Success() public {
+        uint256 collateralAmount = AMOUNT_COLLATERAL;
+        uint256 mintAmount = 5_000 * dscEngine.USD_PRECISION();
+
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(dscEngine), collateralAmount);
+        dscEngine.depositCollateralAndMintDsc(weth, collateralAmount, mintAmount);
+        vm.stopPrank();
+
+        assertEq(dscEngine.getUserCollateralBalance(USER, weth), collateralAmount);
+        (uint256 minted,) = dscEngine.getAccountInformation(USER);
+        assertEq(minted, mintAmount);
+    }
+
+    // ------------------------
+    // Redeem Collateral Tests
+    // ------------------------
+    function testRedeemCollateral_Success() public {
+        _deposit(USER, weth, AMOUNT_COLLATERAL);
+        uint256 redeemAmount = 2 ether;
+
+        vm.startPrank(USER);
+        dscEngine.redeemCollateral(weth, redeemAmount);
+        vm.stopPrank();
+
+        assertEq(dscEngine.getUserCollateralBalance(USER, weth), AMOUNT_COLLATERAL - redeemAmount);
+    }
+
+    function testRedeemCollateral_RevertsIfHealthFactorBroken() public {
+        _deposit(USER, weth, AMOUNT_COLLATERAL); // 10 ETH = $20k
+        uint256 mintAmount = 9_000 * dscEngine.USD_PRECISION();
+        vm.startPrank(USER);
+        dscEngine.mintDsc(mintAmount);
+
+        // Try to redeem too much collateral
+        vm.expectRevert();
+        dscEngine.redeemCollateral(weth, 8 ether);
+        vm.stopPrank();
+    }
+
+    function testRedeemCollateral_RevertsIfZero() public {
+        _deposit(USER, weth, AMOUNT_COLLATERAL);
+        vm.startPrank(USER);
+        vm.expectRevert(DSCEngine.DSCEngine__NeedsMoreThanZero.selector);
+        dscEngine.redeemCollateral(weth, 0);
+        vm.stopPrank();
+    }
+
+    function testRedeemCollateral_EmitsEvent() public {
+        _deposit(USER, weth, AMOUNT_COLLATERAL);
+        uint256 redeemAmount = 2 ether;
+
+        vm.startPrank(USER);
+        vm.expectEmit(true, true, true, true);
+        emit CollateralRedeemed(USER, USER, weth, redeemAmount);
+        dscEngine.redeemCollateral(weth, redeemAmount);
+        vm.stopPrank();
+    }
+
+    // ------------------------
+    // Redeem Collateral For DSC Tests
+    // ------------------------
+    function testRedeemCollateralForDsc_Success() public {
+        uint256 mintAmount = 5_000 * dscEngine.USD_PRECISION();
+        _deposit(USER, weth, AMOUNT_COLLATERAL);
+
+        vm.startPrank(USER);
+        dscEngine.mintDsc(mintAmount);
+
+        uint256 burnAmount = 2_000 * dscEngine.USD_PRECISION();
+        uint256 redeemAmount = 2 ether;
+        dsc.approve(address(dscEngine), burnAmount);
+        dscEngine.redeemCollateralForDsc(weth, redeemAmount, burnAmount);
+        vm.stopPrank();
+
+        assertEq(dscEngine.getUserCollateralBalance(USER, weth), AMOUNT_COLLATERAL - redeemAmount);
+        (uint256 remaining,) = dscEngine.getAccountInformation(USER);
+        assertEq(remaining, mintAmount - burnAmount);
+    }
+
+    function testRedeemCollateralForDsc_RevertsIfZeroDsc() public {
+        _deposit(USER, weth, AMOUNT_COLLATERAL);
+        uint256 mintAmount = 1_000 * dscEngine.USD_PRECISION();
+        vm.startPrank(USER);
+        dscEngine.mintDsc(mintAmount);
+
+        // Test that it works with valid amounts first
+        dsc.approve(address(dscEngine), 500 * dscEngine.USD_PRECISION());
+        dscEngine.redeemCollateralForDsc(weth, 1 ether, 500 * dscEngine.USD_PRECISION());
+        vm.stopPrank();
+    }
+
+    // ------------------------
     // Liquidation Tests
     // ------------------------
     function testLiquidate_RevertsIfHealthFactorOk() public {
