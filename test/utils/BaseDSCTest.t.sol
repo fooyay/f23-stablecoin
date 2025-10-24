@@ -28,6 +28,9 @@ abstract contract BaseDSCTest is Test, IDSCEngineEvents {
         (dsc, dscEngine, config) = deployer.run();
         (ethUsdPriceFeed, btcUsdPriceFeed, weth, wbtc,) = config.activeNetworkConfig();
         USER = makeAddr("user");
+        // Ensure default baseline prices across tests (8 decimals as per mocks)
+        _mockLatestRoundData(ethUsdPriceFeed, 2000e8);
+        _mockLatestRoundData(btcUsdPriceFeed, 40000e8);
         // Provide initial WETH only; tests can mint WBTC as needed
         ERC20Mock(weth).mint(USER, STARTING_ERC20_BALANCE);
     }
@@ -46,5 +49,24 @@ abstract contract BaseDSCTest is Test, IDSCEngineEvents {
         emit CollateralDeposited(user, token, amount);
         dscEngine.depositCollateral(token, amount);
         vm.stopPrank();
+    }
+
+    // ------------------------
+    // Price feed mocking helpers
+    // ------------------------
+    function _mockLatestRoundData(address feed, int256 answer) internal {
+        // latestRoundData() => (uint80, int256, uint256, uint256, uint80)
+        bytes4 selector = bytes4(keccak256("latestRoundData()"));
+        vm.mockCall(
+            feed, abi.encodeWithSelector(selector), abi.encode(uint80(0), answer, uint256(0), uint256(0), uint80(0))
+        );
+    }
+
+    function _setEthUsdPrice(int256 priceWith8Decimals) internal {
+        _mockLatestRoundData(ethUsdPriceFeed, priceWith8Decimals);
+    }
+
+    function _setBtcUsdPrice(int256 priceWith8Decimals) internal {
+        _mockLatestRoundData(btcUsdPriceFeed, priceWith8Decimals);
     }
 }

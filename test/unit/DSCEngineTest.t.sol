@@ -237,4 +237,105 @@ contract DSCEngineTest is BaseDSCTest {
         _deposit(USER, weth, amount);
         assertEq(dscEngine.getUserCollateralBalance(USER, weth), amount);
     }
+
+    // ------------------------
+    // Liquidation Tests
+    // ------------------------
+    function testLiquidate_RevertsIfHealthFactorOk() public {
+        // USER healthy: 10 ETH ($20k), mint $5k => HF = 2.0
+        _deposit(USER, weth, AMOUNT_COLLATERAL);
+        vm.startPrank(USER);
+        dscEngine.mintDsc(5_000 * dscEngine.USD_PRECISION());
+        uint256 hfOk = dscEngine.getHealthFactor();
+        vm.stopPrank();
+        assertGe(hfOk, dscEngine.MIN_HEALTH_FACTOR());
+
+        address liquidator = makeAddr("liquidator_ok");
+        // Prep some DSC/approvals for liquidator (not strictly needed since we expect early revert)
+        ERC20Mock(weth).mint(liquidator, AMOUNT_COLLATERAL);
+        _deposit(liquidator, weth, AMOUNT_COLLATERAL);
+        vm.startPrank(liquidator);
+        dscEngine.mintDsc(2_000 * dscEngine.USD_PRECISION());
+        dsc.approve(address(dscEngine), type(uint256).max);
+        uint256 cover = 1_000 * dscEngine.USD_PRECISION();
+        vm.expectRevert(DSCEngine.DSCEngine__HealthFactorOk.selector);
+        dscEngine.liquidate(weth, USER, cover);
+        vm.stopPrank();
+    }
+
+    function testLiquidate_PartialRepaySeizesCollateralAndImprovesHF() public {
+        // USER: deposit 10 ETH ($20k), mint $9k (HF > 1 initially)
+        _deposit(USER, weth, AMOUNT_COLLATERAL);
+        vm.startPrank(USER);
+        dscEngine.mintDsc(9_000 * dscEngine.USD_PRECISION());
+        uint256 hfPreDrop = dscEngine.getHealthFactor();
+        vm.stopPrank();
+        assertGe(hfPreDrop, dscEngine.USD_PRECISION());
+
+        // Price drop to make USER undercollateralized but improvable via liquidation: $2,000 -> $1,500
+        _setEthUsdPrice(1_500e8);
+
+        // Liquidator prepares DSC to repay
+        address liquidator = makeAddr("liquidator_partial");
+        ERC20Mock(weth).mint(liquidator, AMOUNT_COLLATERAL);
+        _deposit(liquidator, weth, AMOUNT_COLLATERAL);
+        vm.startPrank(liquidator);
+        dscEngine.mintDsc(5_000 * dscEngine.USD_PRECISION());
+        vm.stopPrank();
+
+        (uint256 debtBefore,) = dscEngine.getAccountInformation(USER);
+        uint256 liqDscBefore = dsc.balanceOf(liquidator);
+        uint256 liqWethWalletBefore = ERC20Mock(weth).balanceOf(liquidator);
+        uint256 hfBefore = dscEngine.getHealthFactor(USER);
+
+        uint256 debtToCover = 2_000 * dscEngine.USD_PRECISION();
+        vm.startPrank(liquidator);
+        dsc.approve(address(dscEngine), debtToCover);
+        dscEngine.liquidate(weth, USER, debtToCover);
+        vm.stopPrank();
+
+        (uint256 debtAfter,) = dscEngine.getAccountInformation(USER);
+        uint256 liqDscAfter = dsc.balanceOf(liquidator);
+        uint256 liqWethWalletAfter = ERC20Mock(weth).balanceOf(liquidator);
+        uint256 hfAfter = dscEngine.getHealthFactor(USER);
+
+        assertEq(debtBefore - debtAfter, debtToCover, "User debt mismatch after liquidation");
+        assertEq(liqDscBefore - liqDscAfter, debtToCover, "Liquidator DSC not spent as expected");
+        uint256 minSeized = dscEngine.getTokenAmountFromUsd(weth, debtToCover);
+        uint256 seized = liqWethWalletAfter - liqWethWalletBefore;
+        assertGe(seized, minSeized, "Seized collateral must include liquidation bonus");
+        assertGt(hfAfter, hfBefore, "HF should improve after liquidation");
+    }
+
+    function testLiquidate_AfterRestoredHealthFurtherLiquidationReverts() public {
+        // USER: deposit 10 ETH ($20k), mint $9k (healthy at start)
+        _deposit(USER, weth, AMOUNT_COLLATERAL);
+        vm.startPrank(USER);
+        dscEngine.mintDsc(9_000 * dscEngine.USD_PRECISION());
+        uint256 hfPreDrop2 = dscEngine.getHealthFactor();
+        vm.stopPrank();
+        assertGe(hfPreDrop2, dscEngine.USD_PRECISION());
+
+        // Price drop: $2,000 -> $1,500 to push under threshold but allow restoration via sufficient cover
+        _setEthUsdPrice(1_500e8);
+
+        // Liquidator sets up DSC
+        address liquidator = makeAddr("liquidator_restore");
+        ERC20Mock(weth).mint(liquidator, AMOUNT_COLLATERAL);
+        _deposit(liquidator, weth, AMOUNT_COLLATERAL);
+        vm.startPrank(liquidator);
+        // Keep liquidator healthy at $1,500/ETH: deposited 10 ETH => $15k, threshold 50% => $7.5k
+        // So mint <= $7.5k to maintain HF >= 1
+        dscEngine.mintDsc(6_000 * dscEngine.USD_PRECISION());
+        uint256 cover = 4_000 * dscEngine.USD_PRECISION();
+        dsc.approve(address(dscEngine), cover);
+        dscEngine.liquidate(weth, USER, cover);
+        vm.stopPrank();
+
+        vm.startPrank(liquidator);
+        uint256 nextCover = 1_000 * dscEngine.USD_PRECISION();
+        vm.expectRevert(DSCEngine.DSCEngine__HealthFactorOk.selector);
+        dscEngine.liquidate(weth, USER, nextCover);
+        vm.stopPrank();
+    }
 }

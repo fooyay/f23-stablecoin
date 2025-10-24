@@ -86,7 +86,7 @@ contract DSCEngine is ReentrancyGuard, IDSCEngineEvents {
     uint256 public constant USD_PRECISION = 1e18;
     uint256 private constant LIQUIDATION_THRESHOLD = 50;
     uint256 private constant LIQUIDATION_PRECISION = 100;
-    uint256 private constant MIN_HEALTH_FACTOR = 1e18;
+    uint256 public constant MIN_HEALTH_FACTOR = 1e18;
     uint256 private constant LIQUIDATION_BONUS = 10; // 10%
 
     mapping(address token => address priceFeed) private s_priceFeeds;
@@ -251,14 +251,6 @@ contract DSCEngine is ReentrancyGuard, IDSCEngineEvents {
         return _externalHealthFactor(user);
     }
 
-    function _externalHealthFactor(address user) internal view returns (uint256) {
-        uint256 minted = s_DSCMinted[user];
-        if (minted == 0) {
-            return type(uint256).max;
-        }
-        return _healthFactor(user);
-    }
-
     // public functions
     function depositCollateral(address tokenCollateralAddress, uint256 amountCollateral)
         public
@@ -329,6 +321,15 @@ contract DSCEngine is ReentrancyGuard, IDSCEngineEvents {
         uint256 collateralAdjustedForThreshold = (totalCollateralValue * LIQUIDATION_THRESHOLD) / LIQUIDATION_PRECISION;
         // BUG probably should be THRESHOLD_PRECISION, should catch in tests
         return (collateralAdjustedForThreshold * USD_PRECISION) / totalDscMinted;
+    }
+
+    // review how Patrick solved this problem
+    function _externalHealthFactor(address user) internal view returns (uint256) {
+        uint256 minted = s_DSCMinted[user];
+        if (minted == 0) {
+            return type(uint256).max;
+        }
+        return _healthFactor(user);
     }
 
     function _revertIfHealthFactorIsBroken(address user) internal view {
